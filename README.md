@@ -9,3 +9,4 @@ Then you can run it either directly as:
 cd run
 julia --project=../ hwak_gpu.jl
 ```
+or with multiple threads using the additional `-t N` option. 
