@@ -4,7 +4,18 @@ export hwak,fshowcb_default,fsavecb_default,rhs!
 
 using FFTW
 using DifferentialEquations
+
+### IF USING CUDA:
+
 using CUDA
+jhwar=CuArray
+jhwplan=CUDA.CUFFT.CuFFTPlan
+
+### IF USING CPU:
+
+# jhwar=Array
+# jhwplan=FFTW.rFFTWPlan
+
 using HDF5
 include("mlsarray.jl")
 include("h5tools.jl")
@@ -23,11 +34,11 @@ struct hwak
     Nx::Int64
     Ny::Int64
     sl::slicelist
-    kx::CuArray
-    ky::CuArray
-    zk::CuArray{ComplexF64, 1, CUDA.DeviceMemory}
-    planb::CUDA.CUFFT.CuFFTPlan
-    planf::CUDA.CUFFT.CuFFTPlan
+    kx::jhwar
+    ky::jhwar
+    zk::jhwar
+    planb::jhwplan
+    planf::jhwplan
     fl::HDF5.File
     ps::params
     t0::Float64
@@ -42,15 +53,15 @@ function hwak(Npx=1024,Npy=1024;
     Nx,Ny=2*Int(floor(Npx/3)),2*Int(floor(Npy/3))
     sl=slicelist(Nx,Ny,Npx,Npy)
     kx,ky=init_kgrid(Nx,Ny,Lx,Ly)
-    planb=CUDA.CUFFT.plan_brfft(CUDA.zeros(ComplexF64,(Int(Npy/2)+1,Npx)),Npy,(1,2))
-    planf=CUDA.CUFFT.plan_rfft(CUDA.zeros(Float64,(Npy,Npx)),(1,2))
+    planb=plan_brfft(jhwar(zeros(ComplexF64,(Int(Npy/2)+1,Npx))),Npy,(1,2))
+    planf=plan_rfft(jhwar(zeros(Float64,(Npy,Npx))),(1,2))
     ps=params(C,κ,ν,D)
     if(!wecontinue)
         fl=h5open(flname,"w";swmr=true)
         zk=init_fields(kx,ky)
     else
         fl=h5open(flname,"r+";swmr=true)
-        zk=CuArray(fl["last/uk"][])
+        zk=jhwar(fl["last/uk"][])
         t0=fl["last/t"][]
     end
     return hwak(Npx,Npy,Nx,Ny,sl,kx,ky,zk,planb,planf,fl,ps,t0,t1)
@@ -58,11 +69,11 @@ end
 
 function init_fields(kx,ky,w=5.0,A=1e-4)
     N=length(kx)
-    zk=CUDA.zeros(ComplexF64,2*N)
+    zk=jhwar(zeros(ComplexF64,2*N))
     phik=@view zk[1:N]
     nk=@view zk[N+1:end]
-    phik[:]=A*exp.(-kx.^2/2/w^2-ky.^2/w^2).*exp.(1im*2π*CUDA.rand(N))
-    nk[:]=A*exp.(-kx.^2/2/w^2-ky.^2/w^2).*exp.(1im*2π*CUDA.rand(N))
+    phik[:]=A*exp.(-kx.^2/2/w^2-ky.^2/w^2).*exp.(1im*2π*jhwar(rand(N)))
+    nk[:]=A*exp.(-kx.^2/2/w^2-ky.^2/w^2).*exp.(1im*2π*jhwar(rand(N)))
     return zk
 end
 
@@ -107,7 +118,7 @@ end
 
 function irfft(vk::AbstractArray,hw::hwak,sl::slicelist = hw.sl)
     planb=hw.planb
-    vkp=CUDA.zeros(ComplexF64,(Int(sl.Npy/2)+1,sl.Npx))
+    vkp=jhwar(zeros(ComplexF64,(Int(sl.Npy/2)+1,sl.Npx)))
     vkp[sl].=vk
     vkp[sl.itbarp].=conj(vkp[sl.itbar])
     return planb*vkp
@@ -115,7 +126,7 @@ end
 
 function irfft_unpad(vk::AbstractArray,hw::hwak)
     sl=slicelist(hw.Nx,hw.Ny)
-    vkp=CUDA.zeros(ComplexF64,(Int(sl.Ny/2)+1,sl.Nx))
+    vkp=jhwar(zeros(ComplexF64,(Int(sl.Ny/2)+1,sl.Nx)))
     vkp[sl].=vk
     vkp[sl.itbarp].=vkp[sl.itbar]
     return brfft(vkp,sl.Ny)

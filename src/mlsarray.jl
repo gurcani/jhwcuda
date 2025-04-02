@@ -40,7 +40,7 @@ function init_kgrid(Nx::Int64,Ny::Int64,Lx::Float64,Ly::Float64)
         kx[i]=kxl[lx]*dkx
         ky[i]=kyl[ly]*dky
     end
-    return CuArray(kx),CuArray(ky)
+    return jhwar(kx),jhwar(ky)
 end
 
 # function init_kgrid(sl::slicelist,Lx::Float64,Ly::Float64)
@@ -57,7 +57,7 @@ end
 # end
 
 function irft(vk::AbstractArray,sl::slicelist)
-    vkp=CUDA.zeros(ComplexF64,(Int(sl.Npy/2)+1,sl.Npx))
+    vkp=jhwar(zeros(ComplexF64,(Int(sl.Npy/2)+1,sl.Npx)))
     vkp[sl].=vk
     vkp[sl.itbarp].=vkp[sl.itbar]
     return brfft(vkp,sl.Npy)
