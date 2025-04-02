@@ -1,20 +1,23 @@
 module jhwcuda
 
-export hwak,fshowcb_default,fsavecb_default,rhs!
+export hwak,fshowcb_default,fsavecb_default,rhs!,rhs_exp!,rhs_imp!,init_spjac
 
 using FFTW
 using DifferentialEquations
+using SparseArrays
 
 ### IF USING CUDA:
 
 using CUDA
 jhwar=CuArray
 jhwplan=CUDA.CUFFT.CuFFTPlan
+jhwspmat=CUSPARSE.CuSparseMatrixCSC
 
 ### IF USING CPU:
 
 # jhwar=Array
 # jhwplan=FFTW.rFFTWPlan
+# jhwspmat=SparseMatrixCSC
 
 using HDF5
 include("mlsarray.jl")
@@ -93,6 +96,56 @@ function rhs!(dzkdt,zk,hw,t)
     n=irfft(nk,hw)
     dΦkdt.=(-1im*kx.*rfft(∂yΦ.*Ω,hw) + 1im*ky.*rfft(∂xΦ.*Ω,hw) - C*(Φk - nk).*sigk)./ksqr - ν*sigk.*ksqr.*Φk
     dnkdt.=1im*kx.*rfft(∂yΦ.*n,hw) - 1im*ky.*rfft(∂xΦ.*n,hw) + sigk.*(C .- 1im*κ*ky).*Φk - (C .+ D*ksqr).*sigk.*nk
+end
+
+function rhs_exp!(dzkdt,zk,hw,t)
+    p,sl,kx,ky=hw.ps,hw.sl,hw.kx,hw.ky
+    C,κ,ν,D = p.C,p.κ,p.ν,p.D
+    N=sl.N
+    Φk=@view zk[1:N]
+    nk=@view zk[N+1:end]
+    dΦkdt=@view dzkdt[1:N]
+    dnkdt=@view dzkdt[N+1:end]    
+    ksqr=kx.^2+ky.^2
+    ∂xΦ=irfft(1im*kx.*Φk,hw)
+    ∂yΦ=irfft(1im*ky.*Φk,hw)
+    Ω=irfft(-ksqr.*Φk,hw)
+    n=irfft(nk,hw)
+    dΦkdt.=(-1im*kx.*rfft(∂yΦ.*Ω,hw) + 1im*ky.*rfft(∂xΦ.*Ω,hw))./ksqr
+    dnkdt.=1im*kx.*rfft(∂yΦ.*n,hw) - 1im*ky.*rfft(∂xΦ.*n,hw)
+end
+
+function rhs_imp!(dzkdt,zk,hw,t)
+    p,sl,kx,ky=hw.ps,hw.sl,hw.kx,hw.ky
+    C,κ,ν,D = p.C,p.κ,p.ν,p.D
+    N=sl.N
+    Φk=@view zk[1:N]
+    nk=@view zk[N+1:end]
+    dΦkdt=@view dzkdt[1:N]
+    dnkdt=@view dzkdt[N+1:end]    
+    ksqr=kx.^2+ky.^2
+    sigk=(ky.>0)
+    dΦkdt.=-C*(Φk - nk).*sigk./ksqr - ν*sigk.*ksqr.*Φk
+    dnkdt.=sigk.*(C .- 1im*κ*ky).*Φk - (C .+ D*ksqr).*sigk.*nk
+end
+
+function init_spjac(hw)
+    p,kx,ky=hw.ps,hw.kx,hw.ky
+    C,κ,ν,D = p.C,p.κ,p.ν,p.D
+    N=hw.sl.N
+    ksqr=Array(kx.^2+ky.^2)
+    sigk=Array((ky.>0))
+    ky=Array(ky)
+    J = spzeros(ComplexF64,2*N, 2*N)
+    for j in 1:N
+       ϕj=j
+       nj=j+N
+       J[ϕj,ϕj] = -C*sigk[j]/ksqr[j] - ν*sigk[j]*ksqr[j]
+       J[ϕj,nj] = C*sigk[j]/ksqr[j]
+       J[nj,ϕj] = sigk[j]*(C-1im*κ*ky[j])
+       J[nj,nj] = -(C+D*ksqr[j])*sigk[j]
+    end
+    return jhwspmat(J)
 end
 
 function fshowcb_default(r)
