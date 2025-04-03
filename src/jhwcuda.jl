@@ -164,7 +164,7 @@ function fsavecb_default(r,flag)
     if(flag=="fields")
         Ω=irfft_unpad(-(kx.^2+ky.^2).*Φk,hw)
         n=irfft_unpad(nk,hw)
-        save_data(hw.fl,flag;ext_flag=true,om=Ω,n=n)
+        save_data(hw.fl,flag;ext_flag=true,om=Ω,n=n,t=t)
     end
     save_data(hw.fl,"last",ext_flag=false;t=t,uk=Array(zk))
 end
